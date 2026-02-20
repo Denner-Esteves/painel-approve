@@ -38,6 +38,8 @@ import { toast } from "sonner"
 import { addNewVersion, updateTaskStatus } from "@/app/actions"
 import { useRouter } from "next/navigation"
 
+import { PlatformIcon } from "@/components/platform-icon"
+
 interface TaskImage {
     id: string
     status: string
@@ -55,6 +57,8 @@ interface Task {
     task_images: TaskImage[]
     media_url: string | null
     status: string
+    platform?: string
+    approver_name?: string
 }
 
 interface DashboardClientProps {
@@ -71,7 +75,14 @@ const STATUS_OPTIONS = [
 function StatusSelector({ taskId, currentStatus }: { taskId: string, currentStatus: string | null }) {
     const router = useRouter()
     const [isUpdating, setIsUpdating] = useState(false)
-    const status = currentStatus || "EM PRODUÇÃO"
+
+    // Normalize status from legacy lowercase to uppercase
+    let normalizedStatus = currentStatus || "EM PRODUÇÃO"
+    if (normalizedStatus === 'approved') normalizedStatus = 'APROVADA'
+    if (normalizedStatus === 'rejected') normalizedStatus = 'REJEITADA'
+    if (normalizedStatus === 'pending') normalizedStatus = 'AGUARDANDO APROVAÇÃO' // just in case
+
+    const status = normalizedStatus
 
     const handleStatusChange = async (newStatus: string) => {
         setIsUpdating(true)
@@ -93,7 +104,7 @@ function StatusSelector({ taskId, currentStatus }: { taskId: string, currentStat
     const currentOption = STATUS_OPTIONS.find(opt => opt.value === status) || STATUS_OPTIONS[0]
 
     return (
-        <Select onValueChange={handleStatusChange} defaultValue={status} disabled={isUpdating}>
+        <Select onValueChange={handleStatusChange} value={status} disabled={isUpdating}>
             <SelectTrigger className={`h-6 text-[10px] uppercase tracking-wider font-bold px-2.5 w-fit rounded-full border shadow-sm transition-all hover:scale-105 active:scale-95 ${currentOption.color}`}>
                 <div className="flex items-center gap-1.5">
                     <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
@@ -282,8 +293,11 @@ export function DashboardClient({ tasks = [] }: DashboardClientProps) {
                                 <CardHeader>
                                     <div className="flex justify-between items-start">
                                         <div className="overflow-hidden pr-2">
-                                            <CardTitle className="truncate" title={task.title}>{task.title}</CardTitle>
-                                            <CardDescription className="truncate">{task.client_name}</CardDescription>
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <PlatformIcon platform={task.platform} className="h-4 w-4 text-slate-400" />
+                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{task.client_name}</span>
+                                            </div>
+                                            <CardTitle className="truncate text-lg" title={task.title}>{task.title}</CardTitle>
                                         </div>
                                         <div className="flex flex-col gap-2 items-end">
                                             <Badge variant={approvedCount === totalCount && totalCount > 0 ? "default" : (hasRejections ? "destructive" : "secondary")}>
@@ -309,10 +323,21 @@ export function DashboardClient({ tasks = [] }: DashboardClientProps) {
                                             // eslint-disable-next-line @next/next/no-img-element
                                             <img src={firstImage || ""} alt={task.title} className="w-full h-full object-cover" />
                                         )}
+
+                                        {/* Platform Overlay */}
+                                        <div className="absolute top-2 right-2 bg-white/90 p-1.5 rounded-full shadow-sm">
+                                            <PlatformIcon platform={task.platform} className="h-4 w-4 text-slate-700" />
+                                        </div>
                                     </div>
 
+                                    {((task.status === 'APROVADA' || task.status === 'approved') || (task.status === 'REJEITADA' || task.status === 'rejected')) && task.approver_name && (
+                                        <div className="text-[10px] text-center font-medium bg-slate-50 py-1 rounded border border-slate-100 text-slate-500 uppercase tracking-tight">
+                                            {(task.status === 'APROVADA' || task.status === 'approved') ? "Aprovado por" : "Rejeitado por"}: <span className="font-bold text-slate-700">{task.approver_name}</span>
+                                        </div>
+                                    )}
+
                                     {hasRejections && (
-                                        <div className="space-y-2 border-t pt-4">
+                                        <div className="space-y-2 border-t pt-2">
                                             <h4 className="text-xs font-semibold text-red-600 uppercase tracking-wider flex items-center gap-1">
                                                 <AlertCircle className="h-3 w-3" />
                                                 Rejeições
@@ -328,6 +353,7 @@ export function DashboardClient({ tasks = [] }: DashboardClientProps) {
                                                             <p className="text-xs text-red-700 italic line-clamp-2" title={img.feedback}>
                                                                 "{img.feedback || "Sem feedback"}"
                                                             </p>
+                                                            {task.approver_name && <p className="text-[9px] font-bold text-red-400 mt-1 uppercase">por {task.approver_name}</p>}
                                                         </div>
                                                     </div>
                                                 ))}
@@ -335,7 +361,7 @@ export function DashboardClient({ tasks = [] }: DashboardClientProps) {
                                         </div>
                                     )}
                                 </CardContent>
-                                <CardFooter className="flex justify-between gap-2 border-t pt-4">
+                                <CardFooter className="flex justify-between gap-2 border-t pt-4 mt-auto">
                                     <div className="flex gap-2">
                                         <Link href={`/approve/${task.id}`} target="_blank">
                                             <Button variant="outline" size="sm" className="h-8 w-8 p-0" title="Abrir Link">
@@ -387,10 +413,12 @@ export function DashboardClient({ tasks = [] }: DashboardClientProps) {
                     <Table>
                         <TableHeader>
                             <TableRow>
+                                <TableHead className="w-[50px]"></TableHead>
                                 <TableHead className="w-[80px]">Mídia</TableHead>
                                 <TableHead className="w-[150px]">Cliente</TableHead>
                                 <TableHead>Tarefa</TableHead>
                                 <TableHead>Status</TableHead>
+                                <TableHead>Aprovador</TableHead>
                                 {tasks.some(t => t.task_images?.some(img => img.status === 'rejected')) && (
                                     <TableHead>Feedback / Rejeições</TableHead>
                                 )}
@@ -408,6 +436,11 @@ export function DashboardClient({ tasks = [] }: DashboardClientProps) {
 
                                 return (
                                     <TableRow key={task.id}>
+                                        <TableCell>
+                                            <div className="flex items-center justify-center">
+                                                <PlatformIcon platform={task.platform} className="h-5 w-5 text-slate-400" />
+                                            </div>
+                                        </TableCell>
                                         <TableCell>
                                             <div className="h-10 w-16 bg-muted/50 rounded overflow-hidden relative border flex items-center justify-center">
                                                 {task.type === 'video' ? (
@@ -431,6 +464,9 @@ export function DashboardClient({ tasks = [] }: DashboardClientProps) {
                                             <Badge variant={approvedCount === totalCount && totalCount > 0 ? "default" : (hasRejections ? "destructive" : "secondary")}>
                                                 {approvedCount}/{totalCount}
                                             </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-xs text-slate-500 font-medium whitespace-nowrap">
+                                            {task.approver_name || "-"}
                                         </TableCell>
                                         {tasks.some(t => t.task_images?.some(img => img.status === 'rejected')) && (
                                             <TableCell>

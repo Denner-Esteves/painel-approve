@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { LayoutDashboard, PlusCircle, CheckSquare } from "lucide-react"
+import { LayoutDashboard, PlusCircle, CheckSquare, Calendar } from "lucide-react"
 
 export default function DashboardLayout({
     children,
@@ -35,6 +35,13 @@ export default function DashboardLayout({
                         <PlusCircle className="h-5 w-5 group-hover:scale-110 transition-transform" />
                         <span className="sr-only">Nova Tarefa</span>
                     </Link>
+                    <Link
+                        href="/dashboard/calendar"
+                        className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-400 transition-all hover:bg-slate-50 hover:text-blue-600 group"
+                    >
+                        <Calendar className="h-5 w-5 group-hover:scale-110 transition-transform" />
+                        <span className="sr-only">Calendário</span>
+                    </Link>
                 </nav>
             </aside>
 
@@ -53,6 +60,13 @@ export default function DashboardLayout({
                 >
                     <PlusCircle className="h-6 w-6" />
                     <span className="sr-only">Novo</span>
+                </Link>
+                <Link
+                    href="/dashboard/calendar"
+                    className="flex flex-col items-center justify-center gap-1 text-slate-400 transition-colors hover:text-blue-600"
+                >
+                    <Calendar className="h-5 w-5" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Agenda</span>
                 </Link>
                 <Link
                     href="/dashboard"

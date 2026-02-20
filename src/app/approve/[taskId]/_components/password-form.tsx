@@ -5,7 +5,7 @@ import { verifyTaskPassword } from "../../actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { Lock } from "lucide-react"
+import { Lock, User } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 export default function PasswordForm({ taskId }: { taskId: string }) {
@@ -36,19 +36,44 @@ export default function PasswordForm({ taskId }: { taskId: string }) {
                         <Lock className="h-6 w-6 text-primary" />
                     </div>
                     <CardTitle>Conteúdo Protegido</CardTitle>
-                    <CardDescription>Por favor, insira a senha para visualizar esta tarefa.</CardDescription>
+                    <CardDescription>Para acessar, identifique-se e insira a senha.</CardDescription>
                 </CardHeader>
                 <form action={handleSubmit}>
                     <CardContent>
                         <div className="space-y-4">
-                            <Input
-                                type="password"
-                                name="password"
-                                placeholder="Digite a senha"
-                                required
-                                className="text-center text-lg tracking-widest"
-                            />
-                            {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+                            <div className="space-y-2">
+                                <label htmlFor="name" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                    Seu Nome
+                                </label>
+                                <div className="relative">
+                                    <User className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        id="name"
+                                        type="text"
+                                        name="name"
+                                        placeholder="Ex: Ana Silva"
+                                        required
+                                        className="pl-9"
+                                    />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <label htmlFor="password" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                    Senha de Acesso
+                                </label>
+                                <div className="relative">
+                                    <Lock className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        id="password"
+                                        type="password"
+                                        name="password"
+                                        placeholder="Digite a senha"
+                                        required
+                                        className="pl-9 text-lg tracking-widest"
+                                    />
+                                </div>
+                            </div>
+                            {error && <p className="text-sm text-red-500 text-center font-medium">{error}</p>}
                         </div>
                     </CardContent>
                     <CardFooter>

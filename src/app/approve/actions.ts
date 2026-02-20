@@ -7,7 +7,12 @@ import { revalidatePath } from "next/cache"
 
 export async function verifyTaskPassword(taskId: string, formData: FormData) {
     const password = formData.get("password") as string
+    const name = formData.get("name") as string
     const supabase = await createClient()
+
+    if (!name || name.trim().length < 2) {
+        return { error: "Por favor, insira seu nome." }
+    }
 
     const { data: task, error } = await supabase
         .from("tasks")
@@ -23,9 +28,10 @@ export async function verifyTaskPassword(taskId: string, formData: FormData) {
         return { error: "Senha incorreta" }
     }
 
-    // Set cookie to remember session
+    // Set cookie to remember session and name
     const cookieStore = await cookies()
     cookieStore.set(`task_session_${taskId}`, "authenticated", { httpOnly: true, path: '/' })
+    cookieStore.set(`task_approver_${taskId}`, name, { httpOnly: true, path: '/' })
 
     revalidatePath(`/approve/${taskId}`)
     return { success: true }
@@ -33,12 +39,17 @@ export async function verifyTaskPassword(taskId: string, formData: FormData) {
 
 export async function approveTask(taskId: string) {
     const supabase = await createClient()
+    const cookieStore = await cookies()
+    const approverName = cookieStore.get(`task_approver_${taskId}`)?.value || "Desconhecido"
 
     // In a real app, verify cookie here too for extra security
 
     const { error } = await supabase
         .from("tasks")
-        .update({ status: 'approved' })
+        .update({
+            status: 'APROVADA',
+            approver_name: approverName
+        })
         .eq("id", taskId)
 
     if (error) throw new Error("Failed to approve")
@@ -49,10 +60,16 @@ export async function approveTask(taskId: string) {
 
 export async function rejectTask(taskId: string, reason: string) {
     const supabase = await createClient()
+    const cookieStore = await cookies()
+    const approverName = cookieStore.get(`task_approver_${taskId}`)?.value || "Desconhecido"
 
     const { error } = await supabase
         .from("tasks")
-        .update({ status: 'rejected', feedback: reason })
+        .update({
+            status: 'REJEITADA',
+            feedback: reason,
+            approver_name: approverName
+        })
         .eq("id", taskId)
 
     if (error) throw new Error("Failed to reject")

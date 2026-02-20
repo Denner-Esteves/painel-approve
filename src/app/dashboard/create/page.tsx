@@ -6,22 +6,76 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { createTask } from "@/app/actions"
-import { useState, useRef } from "react"
-import { ArrowLeft, RefreshCw, Upload, X, Loader2, Smartphone, Play, Heart, ExternalLink } from "lucide-react"
+import { useState, useRef, useEffect, forwardRef, Suspense } from "react"
+import { ArrowLeft, RefreshCw, Upload, X, Loader2, Smartphone, Play, Heart, ExternalLink, Plus } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
+import { getClients } from "../clients/actions"
+import { useRouter, useSearchParams } from "next/navigation"
+import { PlatformIcon } from "@/components/platform-icon"
+import { Calendar as CalendarIcon } from "lucide-react"
+import { format } from "date-fns"
+import { ptBR } from "date-fns/locale"
+import { cn } from "@/lib/utils"
+import DatePicker, { registerLocale } from "react-datepicker"
+import "react-datepicker/dist/react-datepicker.css"
+registerLocale("pt-BR", ptBR)
 
-export default function CreateTaskPage() {
+const CustomDateInput = forwardRef(({ value, onClick, onChange, onClear }: any, ref: any) => (
+    <div className="relative cursor-pointer">
+        <Input
+            ref={ref}
+            onClick={onClick}
+            className="h-12 w-full pr-10 rounded-xl bg-slate-50 border-slate-200 cursor-pointer focus:ring-blue-500 font-medium"
+            value={value}
+            readOnly
+            placeholder="Selecione uma data"
+            onChange={onChange}
+        />
+        {value ? (
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onClear();
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 h-8 w-8 flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"
+                title="Limpar data"
+            >
+                <X className="h-4 w-4" />
+            </button>
+        ) : (
+            <CalendarIcon
+                onClick={onClick}
+                className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 pointer-events-none"
+            />
+        )}
+    </div>
+))
+
+interface Client {
+    id: string
+    name: string
+    logo_url: string | null
+}
+
+function CreateTaskForm() {
+    const searchParams = useSearchParams()
     const [isLoading, setIsLoading] = useState(false)
     const [password, setPassword] = useState(() => Math.random().toString(36).slice(-8))
 
     // Form State
-    const [clientName, setClientName] = useState("")
+    const [clients, setClients] = useState<Client[]>([])
+    const [selectedClientId, setSelectedClientId] = useState<string>("")
+    const [isLoadingClients, setIsLoadingClients] = useState(true)
+    const [clientName, setClientName] = useState("") // Fallback/Display
     const [title, setTitle] = useState("")
     const [description, setDescription] = useState("")
     const [type, setType] = useState("instagram_post")
+    const [platform, setPlatform] = useState("instagram_post")
     const [externalUrl, setExternalUrl] = useState("")
+    const [scheduledDate, setScheduledDate] = useState("") // Added scheduledDate
 
     // File State
     const [selectedFiles, setSelectedFiles] = useState<File[]>([])
@@ -30,6 +84,43 @@ export default function CreateTaskPage() {
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     const isLinkType = type === 'video' || type === 'website'
+
+    useEffect(() => {
+        async function fetchClients() {
+            setIsLoadingClients(true)
+            try {
+                const data = await getClients()
+                setClients(data)
+
+                // Pre-select client if passed in URL
+                const clientId = searchParams.get('clientId')
+                if (clientId) {
+                    setSelectedClientId(clientId)
+                }
+
+                // Pre-select date if passed in URL
+                const dateParam = searchParams.get('date')
+                if (dateParam) {
+                    setScheduledDate(dateParam)
+                }
+            } catch (error) {
+                console.error("Error fetching clients:", error)
+                toast.error("Erro ao carregar clientes")
+            } finally {
+                setIsLoadingClients(false)
+            }
+        }
+        fetchClients()
+    }, [searchParams])
+
+    useEffect(() => {
+        if (selectedClientId) {
+            const client = clients.find(c => c.id === selectedClientId)
+            if (client) {
+                setClientName(client.name)
+            }
+        }
+    }, [selectedClientId, clients])
 
     const generatePassword = () => {
         setPassword(Math.random().toString(36).slice(-8))
@@ -55,6 +146,11 @@ export default function CreateTaskPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+
+        if (!selectedClientId) {
+            toast.error("Por favor, selecione um cliente.")
+            return
+        }
 
         if (!isLinkType && selectedFiles.length === 0) {
             toast.error("Por favor, selecione pelo menos um arquivo de mídia.")
@@ -94,10 +190,12 @@ export default function CreateTaskPage() {
 
             // Create FormData for server action
             const formData = new FormData()
-            formData.append("client_name", clientName)
+            formData.append("client_id", selectedClientId)
             formData.append("title", title)
             formData.append("description", description)
             formData.append("type", type)
+            formData.append("platform", platform)
+            formData.append("scheduled_date", scheduledDate) // Added scheduled_date
             formData.append("access_password", password)
 
             if (isLinkType) {
@@ -112,7 +210,11 @@ export default function CreateTaskPage() {
                 toast.success("Tarefa criada com sucesso!")
                 // Brief delay to allow the toast to be seen
                 setTimeout(() => {
-                    window.location.href = "/dashboard"
+                    if (result.redirectUrl) {
+                        window.location.href = result.redirectUrl
+                    } else {
+                        window.location.href = "/dashboard"
+                    }
                 }, 1000)
             } else {
                 throw new Error("Falha na resposta do servidor")
@@ -148,15 +250,36 @@ export default function CreateTaskPage() {
                         <CardContent className="space-y-6 lg:p-10 p-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label htmlFor="client_name" className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Nome do Cliente</Label>
-                                    <Input
-                                        id="client_name"
-                                        value={clientName}
-                                        onChange={e => setClientName(e.target.value)}
-                                        placeholder="Empresa XPTO"
-                                        required
-                                        className="h-12 rounded-xl bg-slate-50 border-slate-200 focus:ring-blue-500"
-                                    />
+                                    <Label htmlFor="client_id" className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Cliente</Label>
+                                    <div className="flex gap-2">
+                                        <Select value={selectedClientId} onValueChange={setSelectedClientId}>
+                                            <SelectTrigger className="h-12 rounded-xl bg-slate-50 border-slate-200 font-medium flex-1">
+                                                <SelectValue placeholder="Selecione o Cliente" />
+                                            </SelectTrigger>
+                                            <SelectContent className="rounded-xl">
+                                                {clients.length === 0 ? (
+                                                    <div className="p-2 text-sm text-slate-500 text-center">Nenhum cliente encontrado</div>
+                                                ) : (
+                                                    clients.map(client => (
+                                                        <SelectItem key={client.id} value={client.id}>
+                                                            <div className="flex items-center gap-2">
+                                                                {client.logo_url && (
+                                                                    // eslint-disable-next-line @next/next/no-img-element
+                                                                    <img src={client.logo_url} alt="" className="w-4 h-4 object-contain" />
+                                                                )}
+                                                                {client.name}
+                                                            </div>
+                                                        </SelectItem>
+                                                    ))
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                        <Link href="/dashboard/clients/create">
+                                            <Button type="button" size="icon" className="h-12 w-12 rounded-xl shrink-0" variant="outline" title="Criar Novo Cliente">
+                                                <Plus className="h-5 w-5" />
+                                            </Button>
+                                        </Link>
+                                    </div>
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="title" className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Título da Tarefa</Label>
@@ -182,19 +305,139 @@ export default function CreateTaskPage() {
                                 />
                             </div>
 
-                            <div className="space-y-2">
-                                <Label htmlFor="type" className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Tipo de Material</Label>
-                                <Select value={type} onValueChange={setType}>
-                                    <SelectTrigger className="h-12 rounded-xl bg-slate-50 border-slate-200 font-medium">
-                                        <SelectValue placeholder="Selecione o tipo" />
-                                    </SelectTrigger>
-                                    <SelectContent className="rounded-xl">
-                                        <SelectItem value="instagram_post">Post Instagram</SelectItem>
-                                        <SelectItem value="video">Vídeo (YouTube/Vimeo)</SelectItem>
-                                        <SelectItem value="website">Site / Figma</SelectItem>
-                                        <SelectItem value="other">Outro</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <Label htmlFor="type" className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Tipo de Material</Label>
+                                    <Select value={type} onValueChange={setType}>
+                                        <SelectTrigger className="h-12 rounded-xl bg-slate-50 border-slate-200 font-medium">
+                                            <SelectValue placeholder="Selecione o tipo" />
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-xl">
+                                            <SelectItem value="instagram_post">Post Redes Sociais</SelectItem>
+                                            <SelectItem value="video">Vídeo (YouTube/Vimeo)</SelectItem>
+                                            <SelectItem value="website">Site / Figma</SelectItem>
+                                            <SelectItem value="other">Outro</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="platform" className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Plataforma</Label>
+                                    <Select value={platform} onValueChange={setPlatform}>
+                                        <SelectTrigger className="h-12 rounded-xl bg-slate-50 border-slate-200 font-medium">
+                                            <SelectValue placeholder="Selecione a plataforma" />
+                                        </SelectTrigger>
+                                        <SelectContent className="rounded-xl">
+                                            <SelectItem value="instagram_post">
+                                                <div className="flex items-center gap-2">
+                                                    <PlatformIcon platform="instagram" className="h-4 w-4" />
+                                                    Instagram
+                                                </div>
+                                            </SelectItem>
+                                            <SelectItem value="facebook">
+                                                <div className="flex items-center gap-2">
+                                                    <PlatformIcon platform="facebook" className="h-4 w-4" />
+                                                    Facebook
+                                                </div>
+                                            </SelectItem>
+                                            <SelectItem value="linkedin">
+                                                <div className="flex items-center gap-2">
+                                                    <PlatformIcon platform="linkedin" className="h-4 w-4" />
+                                                    LinkedIn
+                                                </div>
+                                            </SelectItem>
+                                            <SelectItem value="youtube">
+                                                <div className="flex items-center gap-2">
+                                                    <PlatformIcon platform="youtube" className="h-4 w-4" />
+                                                    YouTube
+                                                </div>
+                                            </SelectItem>
+                                            <SelectItem value="tiktok">
+                                                <div className="flex items-center gap-2">
+                                                    <PlatformIcon platform="tiktok" className="h-4 w-4" />
+                                                    TikTok
+                                                </div>
+                                            </SelectItem>
+                                            <SelectItem value="other_platform">
+                                                <div className="flex items-center gap-2">
+                                                    <PlatformIcon platform="other" className="h-4 w-4" />
+                                                    Outra
+                                                </div>
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2 relative">
+                                <Label htmlFor="scheduled_date" className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-1">Agendar Para (Opcional)</Label>
+                                <DatePicker
+                                    selected={scheduledDate ? new Date(scheduledDate + 'T00:00:00') : null}
+                                    onChange={(date: Date | null) => setScheduledDate(date ? format(date, 'yyyy-MM-dd') : "")}
+                                    dateFormat="PPP"
+                                    locale="pt-BR"
+                                    placeholderText="Selecione uma data"
+                                    wrapperClassName="w-full"
+                                    popperPlacement="bottom-start"
+                                    popperClassName="custom-datepicker-popper"
+                                    showPopperArrow={false}
+                                    customInput={
+                                        <CustomDateInput onClear={() => setScheduledDate("")} />
+                                    }
+                                />
+                                <style jsx global>{`
+                                    .custom-datepicker-popper {
+                                        z-index: 100 !important;
+                                    }
+                                    .react-datepicker {
+                                        font-family: inherit;
+                                        border-radius: 1.5rem;
+                                        border: none;
+                                        box-shadow: 0 20px 40px -10px rgba(0,0,0,0.1);
+                                        padding: 0.5rem;
+                                        overflow: hidden;
+                                    }
+                                    .react-datepicker__header {
+                                        background-color: white;
+                                        border-bottom: 1px solid #f1f5f9;
+                                        border-radius: 1.5rem 1.5rem 0 0;
+                                        padding-top: 1rem;
+                                    }
+                                    .react-datepicker__current-month {
+                                        font-weight: 800;
+                                        text-transform: uppercase;
+                                        letter-spacing: -0.025em;
+                                        font-style: italic;
+                                        margin-bottom: 0.5rem;
+                                    }
+                                    .react-datepicker__day-name {
+                                        font-weight: 700;
+                                        color: #94a3b8;
+                                        font-size: 0.7rem;
+                                        text-transform: uppercase;
+                                    }
+                                    .react-datepicker__day {
+                                        font-weight: 600;
+                                        border-radius: 0.75rem;
+                                        transition: all 0.2s;
+                                    }
+                                    .react-datepicker__day:hover {
+                                        background-color: #eff6ff;
+                                        color: #2563eb;
+                                    }
+                                    .react-datepicker__day--selected {
+                                        background-color: #2563eb !important;
+                                        color: white !important;
+                                        border-radius: 0.75rem;
+                                        box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+                                    }
+                                    .react-datepicker__day--today {
+                                        color: #2563eb;
+                                        font-weight: 800;
+                                    }
+                                    .react-datepicker__navigation {
+                                        top: 1rem;
+                                    }
+                                `}</style>
                             </div>
 
                             {isLinkType ? (
@@ -355,3 +598,19 @@ export default function CreateTaskPage() {
         </div>
     )
 }
+
+export default function CreateTaskPage() {
+    return (
+        <Suspense fallback={
+            <div className="w-full h-screen flex items-center justify-center bg-white">
+                <div className="flex flex-col items-center gap-4">
+                    <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                    <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">Carregando formulário...</p>
+                </div>
+            </div>
+        }>
+            <CreateTaskForm />
+        </Suspense>
+    )
+}
+

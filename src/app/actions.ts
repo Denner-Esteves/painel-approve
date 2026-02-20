@@ -7,13 +7,25 @@ import { revalidatePath } from "next/cache"
 export async function createTask(formData: FormData) {
     const supabase = await createClient()
 
-    const client_name = formData.get("client_name") as string
+    const client_id = formData.get("client_id") as string
+
+    // ... [existing client_name logic] ...
+    let client_name = formData.get("client_name") as string
+
+    if (client_id) {
+        const { data: client } = await supabase.from('clients').select('name').eq('id', client_id).single()
+        if (client) {
+            client_name = client.name
+        }
+    }
     const title = formData.get("title") as string
     const description = formData.get("description") as string
     const type = formData.get("type") as string
     const media_urls_raw = formData.getAll("media_url") as string[]
     const external_url = formData.get("external_url") as string
     const access_password = formData.get("access_password") as string
+    const platform = formData.get("platform") as string
+    const scheduled_date = formData.get("scheduled_date") as string // Added scheduled_date
 
     // Process URLs (filter empty ones)
     const urls = media_urls_raw.map(u => u.trim()).filter(u => u.length > 0)
@@ -25,13 +37,16 @@ export async function createTask(formData: FormData) {
     // Insert task
     const { data: task, error: taskError } = await supabase.from("tasks").insert({
         client_name,
+        client_id: client_id || null,
         title,
         description,
         type,
         media_url: mainMediaUrl,
         external_url: external_url || null,
         access_password,
-        status: (urls.length > 0 || external_url) ? 'AGUARDANDO APROVAÇÃO' : 'EM PRODUÇÃO'
+        status: (urls.length > 0 || external_url) ? 'AGUARDANDO APROVAÇÃO' : 'EM PRODUÇÃO',
+        platform: platform || 'instagram_post',
+        scheduled_date: scheduled_date || null // Added scheduled_date
     }).select().single()
 
     if (taskError) {
@@ -57,8 +72,42 @@ export async function createTask(formData: FormData) {
     }
 
     revalidatePath("/dashboard")
+    revalidatePath("/dashboard/calendar") // Revalidate calendar
+
+    if (client_id) {
+        const date = new Date()
+        const year = date.getFullYear()
+        const month = date.getMonth()
+        return { success: true, task, redirectUrl: `/dashboard/clients/${client_id}?year=${year}&month=${month}` }
+    }
+
     return { success: true, task }
 }
+
+export async function getCalendarTasks(startStr: string, endStr: string) {
+    const supabase = await createClient()
+
+    // Query tasks within the date range
+    // We filter where scheduled_date is NOT NULL and within range
+    const { data, error } = await supabase
+        .from('tasks')
+        .select('id, title, scheduled_date, status, client_name, type, platform')
+        .not('scheduled_date', 'is', null)
+        .gte('scheduled_date', startStr)
+        .lte('scheduled_date', endStr)
+        .order('scheduled_date', { ascending: true })
+
+    if (error) {
+        console.error("Error fetching calendar tasks:", error)
+        return []
+    }
+
+    return data
+}
+
+import { cookies } from "next/headers"
+
+// ... imports remain the same
 
 export async function updateImageStatus(imageId: string, status: 'approved' | 'rejected', feedback?: string) {
     const supabase = await createClient()
@@ -95,13 +144,32 @@ export async function updateImageStatus(imageId: string, status: 'approved' | 'r
                 nextStatus = 'APROVADA'
             }
 
-            await supabase.from("tasks").update({ status: nextStatus }).eq("id", taskId)
+            // Determine approver name
+            const { data: { user } } = await supabase.auth.getUser()
+            let approverName = null
+
+            if (user) {
+                approverName = user.user_metadata?.name || user.user_metadata?.full_name || user.email?.split('@')[0]
+            } else {
+                const cookieStore = await cookies()
+                approverName = cookieStore.get(`task_approver_${taskId}`)?.value || null
+            }
+
+            const updates: any = { status: nextStatus }
+
+            // Only update approver_name if the task is finalized
+            if (nextStatus === 'APROVADA' || nextStatus === 'REJEITADA') {
+                if (approverName) updates.approver_name = approverName
+            }
+
+            await supabase.from("tasks").update(updates).eq("id", taskId)
             revalidatePath("/dashboard")
         }
     }
 
     return { success: true }
 }
+
 
 export async function deleteTask(taskId: string) {
     const supabase = await createClient()
@@ -157,12 +225,38 @@ export async function addNewVersion(taskId: string, urls: string[]) {
     return { success: true }
 }
 
+
 export async function updateTaskStatus(taskId: string, status: string) {
     const supabase = await createClient()
 
+    // Get current user for audit/approver name
+    const { data: { user } } = await supabase.auth.getUser()
+    let approverName = null
+
+    if (user) {
+        // Try to get name from metadata, fallback to email or "Admin"
+        approverName = user.user_metadata?.name || user.user_metadata?.full_name || user.email?.split('@')[0] || "Admin"
+    } else {
+        // Check for external approver cookie
+        const cookieStore = await cookies()
+        approverName = cookieStore.get(`task_approver_${taskId}`)?.value || "Desconhecido"
+    }
+
+    const updates: any = { status }
+
+    // If status is final (Approved/Rejected), set the approver name
+    if (status === 'APROVADA' || status === 'REJEITADA' || status === 'approved' || status === 'rejected') {
+        if (approverName) {
+            updates.approver_name = approverName
+        }
+    } else {
+        // If moving back to in-progress, maybe clear the approver?
+        updates.approver_name = null
+    }
+
     const { error } = await supabase
         .from("tasks")
-        .update({ status })
+        .update(updates)
         .eq("id", taskId)
 
     if (error) {
